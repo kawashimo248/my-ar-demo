@@ -14,10 +14,10 @@
     // It keeps the mascot's face always pointing towards the camera on the Y-axis.
     AFRAME.registerComponent('random-walk', {
       schema: {
-        speed: {type: 'number', default: 0.3}, // ゆったりとした愛らしい歩行スピード
-        rangeX: {type: 'array', default: [-1.4, 1.4]},
-        rangeY: {type: 'array', default: [-0.4, 0.6]}, // 重力を無視して上下に浮かび上がる範囲
-        rangeZ: {type: 'array', default: [-3.2, -1.8]}
+        speed: {type: 'number', default: 0.25}, // 左右お散歩用に少しゆっくりめのスピードに調整
+        rangeX: {type: 'array', default: [-0.8, 0.8]}, // 画面からはみ出さない左右の範囲
+        rangeY: {type: 'array', default: [-0.25, -0.25]}, // 高さは画面下の定位置に固定
+        rangeZ: {type: 'array', default: [-2.2, -2.2]} // 距離もカメラから見やすい位置に固定
       },
       
       init: function () {
@@ -314,6 +314,14 @@
     .icon-teal {
       background: #0d9488; /* Teal */
     }
+
+    .icon-indigo {
+      background: #6366f1; /* Indigo */
+    }
+
+    .icon-red {
+      background: #e11d48; /* YouTube Red */
+    }
     
     .overlay-footer {
       align-self: center;
@@ -376,6 +384,88 @@
         border-radius: 0 13px 13px 0;
         font-size: 14px;
       }
+    }
+
+    /* Mascot Speech Bubble (HTML Overlay - Game/SF Style) */
+    .speech-dialog {
+      position: absolute;
+      bottom: 85px; /* フッターの少し上に配置 */
+      left: 50%;
+      transform: translateX(-50%) scale(0.9);
+      width: 88%;
+      max-width: 420px;
+      background: rgba(15, 23, 42, 0.85); /* ダークブルーグレー */
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1.5px solid #10b981; /* ネオングリーン */
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.3), inset 0 0 10px rgba(16, 185, 129, 0.1);
+      border-radius: 16px;
+      padding: 12px 18px;
+      color: #fff;
+      pointer-events: auto; /* クリックを有効化 */
+      z-index: 100;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .speech-dialog.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) scale(1);
+    }
+
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(16, 185, 129, 0.25);
+      padding-bottom: 4px;
+    }
+
+    .dialog-speaker {
+      font-size: 11px;
+      font-weight: 800;
+      color: #10b981;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-family: 'Outfit', sans-serif;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dialog-speaker i {
+      animation: pulse 1s infinite alternate;
+      font-size: 7px;
+    }
+
+    .dialog-close {
+      font-size: 18px;
+      color: rgba(255, 255, 255, 0.5);
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+
+    .dialog-close:hover {
+      color: #ef4444;
+    }
+
+    .dialog-text {
+      font-size: 13.5px;
+      font-weight: 500;
+      line-height: 1.5;
+      color: #f1f5f9;
+      word-break: break-all;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; transform: scale(0.9); }
+      100% { opacity: 1; transform: scale(1.1); }
     }
   </style>
 </head>
@@ -551,8 +641,47 @@
         </div>
       </div>
 
+      <!-- Card 5: 技報 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">技報</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-indigo">
+          <i class="fa-solid fa-book-open"></i>
+        </div>
+      </div>
+
+      <!-- Card 6: YOUTUBE -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">YOUTUBE</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-red">
+          <i class="fa-brands fa-youtube"></i>
+        </div>
+      </div>
+
     </div>
     
+    <!-- Mascot Speech HTML Dialog (SF Game Style) -->
+    <div id="html-speech-dialog" class="speech-dialog">
+      <div class="dialog-header">
+        <span class="dialog-speaker"><i class="fa-solid fa-circle" style="color: #10b981;"></i> 分析の助の分析サポート</span>
+        <span class="dialog-close" id="dialog-close-btn">&times;</span>
+      </div>
+      <div class="dialog-text" id="html-speech-text">
+        分析の助をタップすると、ここにメッセージが表示されます。
+      </div>
+    </div>
+
     <!-- Footer Instruction -->
     <div class="overlay-footer">
       <i class="fa-solid fa-hand-pointer tap-hint-icon"></i>
@@ -575,13 +704,13 @@
       <!-- タップ対象となる透明なコライダー（クリック判定を広げるため） -->
       <a-box class="clickable"
              id="mascot-collider"
-             position="0 0.1 0" 
-             width="1.2" height="1.8" depth="1.2" 
+             position="0 -0.1 0" 
+             width="0.6" height="1.0" depth="0.6" 
              material="opacity: 0; transparent: true;">
       </a-box>
       
-      <!-- 1. 分析の助の本体 -->
-      <a-entity id="mascot-model">
+      <!-- 1. 分析の助の本体 (1/2サイズへ縮小) -->
+      <a-entity id="mascot-model" scale="0.5 0.5 0.5">
         <!-- 外側のフラスコガラス (半透明) -->
         <a-sphere radius="0.45" 
                   position="0 -0.15 0"
@@ -668,49 +797,9 @@
         <a-cylinder position="0.16 -0.52 0" radius="0.07" height="0.1" color="#475569"></a-cylinder>
       </a-entity>
 
-      <!-- 2. 吹き出しセリフ -->
-      <a-entity id="speech-bubble" position="0 1.1 0" scale="0 0 0">
-        <a-plane width="1.6" height="0.5" color="#1e293b" material="opacity: 0.95; transparent: true; roughness: 0.8;"></a-plane>
-        <a-ring radius-inner="0.78" radius-outer="0.8" color="#10b981" scale="1 0.35 1" material="side: double;"></a-ring>
-        <a-text id="speech-text" 
-                value="Hello!" 
-                color="#f8fafc" 
-                align="center" 
-                width="2.4"
-                font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"
-                font-image="https://cdn.aframe.io/fonts/DejaVu-sdf.png">
-        </a-text>
-      </a-entity>
 
-      <!-- 3. 3Dホログラム空間ディスプレイ（左側: Methods） -->
-      <a-entity position="-1.2 0.2 -0.2" rotation="0 25 0">
-        <a-plane width="0.9" height="1.3" color="#1e293b" material="opacity: 0.6; transparent: true; roughness: 0.9;"></a-plane>
-        <a-ring radius-inner="0.67" radius-outer="0.68" color="#3b82f6" scale="1 1.45 1" material="side: double; opacity: 0.7;"></a-ring>
-        <a-text value="EPMA Analysis\nX-ray Diffraction\nICP / MS\nAbsorbance\nContinuous Meas.\nGas Chromatograph\nGC / MS" 
-                color="#93c5fd" 
-                align="center" 
-                position="0 0 0.02"
-                width="1.8"
-                font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"
-                font-image="https://cdn.aframe.io/fonts/DejaVu-sdf.png">
-        </a-text>
-        <a-text value="METHODS" color="#60a5fa" align="center" position="0 0.52 0.02" width="2.4" font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"></a-text>
-      </a-entity>
 
-      <!-- 4. 3Dホログラム空間ディスプレイ（右側: Targets） -->
-      <a-entity position="1.2 0.2 -0.2" rotation="0 -25 0">
-        <a-plane width="0.9" height="1.3" color="#1e293b" material="opacity: 0.6; transparent: true; roughness: 0.9;"></a-plane>
-        <a-ring radius-inner="0.67" radius-outer="0.68" color="#10b981" scale="1 1.45 1" material="side: double; opacity: 0.7;"></a-ring>
-        <a-text value="Gas Analysis\nWater Quality\nMaterial Analysis\nComponent Anal." 
-                color="#a7f3d0" 
-                align="center" 
-                position="0 0.02"
-                width="1.8"
-                font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"
-                font-image="https://cdn.aframe.io/fonts/DejaVu-sdf.png">
-        </a-text>
-        <a-text value="TARGETS" color="#10b981" align="center" position="0 0.52 0.02" width="2.4" font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"></a-text>
-      </a-entity>
+
       
     </a-entity>
 
@@ -722,10 +811,13 @@
   <!-- JavaScript for Interactions -->
   <script>
     const mascot = document.getElementById('mascot-collider');
-    const bubble = document.getElementById('speech-bubble');
-    const speechText = document.getElementById('speech-text');
     const mascotModel = document.getElementById('mascot-model');
     const mascotContainer = document.getElementById('mascot-container');
+    
+    // HTML Dialog elements
+    const htmlDialog = document.getElementById('html-speech-dialog');
+    const htmlSpeechText = document.getElementById('html-speech-text');
+    const dialogCloseBtn = document.getElementById('dialog-close-btn');
     
     const analysisItems = [
       "EPMA分析",
@@ -738,7 +830,9 @@
       "ガス分析",
       "水質分析",
       "材料分析",
-      "成分分析"
+      "成分分析",
+      "技報",
+      "YOUTUBE"
     ];
 
     const messageTemplates = [
@@ -759,30 +853,81 @@
     }
 
     let bubbleTimeout = null;
+    let autoSpeechTimeout = null; // 自動で喋るためのタイマー
     let isJumping = false;
 
+    // ダイアログを閉じて、ランダム歩行を再開し、次の発話を予約する関数
+    function closeDialog() {
+      htmlDialog.classList.remove('show');
+      const movement = mascotContainer.components['random-walk'];
+      if (movement) {
+        movement.isMoving = true;
+      }
+      
+      // ダイアログが閉じてから 8〜14秒 のランダムな間隔の後に自動で次のひとりごとを言う
+      scheduleAutoSpeech();
+    }
+
+    // 閉じるボタンのイベント
+    dialogCloseBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // バブリングを防止
+      closeDialog();
+    });
+
+    // 自動発話（ひとりごと）をトリガーする関数
+    function triggerAutoSpeech() {
+      // 喋る際はお散歩を一時停止
+      const movement = mascotContainer.components['random-walk'];
+      if (movement) {
+        movement.isMoving = false;
+        // 停止時は体の傾きを正面に戻す
+        const currentRotation = mascotContainer.getAttribute('rotation') || {x: 0, y: 0, z: 0};
+        mascotContainer.setAttribute('rotation', {x: 0, y: currentRotation.y, z: 0});
+      }
+
+      // 分析項目を組み合わせたランダムセリフを表示
+      const dialogueText = generateRandomDialogue();
+      htmlSpeechText.textContent = dialogueText;
+      htmlDialog.classList.add('show');
+
+      // 4秒後に自動的にダイアログを閉じて歩行再開
+      clearTimeout(bubbleTimeout);
+      bubbleTimeout = setTimeout(() => {
+        closeDialog();
+      }, 4000);
+    }
+
+    // 次の自動ひとりごとをスケジュールする関数
+    function scheduleAutoSpeech() {
+      clearTimeout(autoSpeechTimeout);
+      // お散歩中に 8〜14秒 のランダム間隔で発動
+      const nextDelay = Math.random() * 6000 + 8000;
+      autoSpeechTimeout = setTimeout(() => {
+        triggerAutoSpeech();
+      }, nextDelay);
+    }
+
+    // タップ時の即時発話イベント
     mascot.addEventListener('click', () => {
+      // 自動おしゃべりタイマーを一時リセット
+      clearTimeout(autoSpeechTimeout);
+
       // ゆるキャラのランダム歩行コンポーネントを一時停止
       const movement = mascotContainer.components['random-walk'];
       if (movement) {
         movement.isMoving = false;
-        // 停止時は体の傾きをリセット
         const currentRotation = mascotContainer.getAttribute('rotation') || {x: 0, y: 0, z: 0};
         mascotContainer.setAttribute('rotation', {x: 0, y: currentRotation.y, z: 0});
       }
 
       // 分析項目を動的に組み合わせたランダムセリフの適用
       const dialogueText = generateRandomDialogue();
-      speechText.setAttribute('value', dialogueText);
+      htmlSpeechText.textContent = dialogueText;
       
-      bubble.removeAttribute('animation');
-      bubble.setAttribute('animation', {
-        property: 'scale',
-        to: '1 1 1',
-        dur: 300,
-        easing: 'easeOutBack'
-      });
+      // HTMLダイアログを表示
+      htmlDialog.classList.add('show');
 
+      // タップされた時はジャンプアクション
       if (!isJumping) {
         isJumping = true;
         mascotModel.setAttribute('animation', {
@@ -798,25 +943,20 @@
           mascotModel.removeAttribute('animation');
           mascotModel.setAttribute('position', '0 0 0');
           isJumping = false;
-          
-          // ジャンプ完了後にランダム歩行を再開
-          if (movement) {
-            movement.isMoving = true;
-          }
         }, 500);
       }
 
       clearTimeout(bubbleTimeout);
+      // 4秒後に自動的にダイアログを閉じて歩行再開 ＆ 次の自動おしゃべりを予約
       bubbleTimeout = setTimeout(() => {
-        bubble.removeAttribute('animation');
-        bubble.setAttribute('animation', {
-          property: 'scale',
-          to: '0 0 0',
-          dur: 250,
-          easing: 'easeInBack'
-        });
-      }, 3000);
+        closeDialog();
+      }, 4000);
     });
+
+    // アプリ起動（ロード）完了から 5秒 後に、最初のひとりごとを言うように予約
+    autoSpeechTimeout = setTimeout(() => {
+      triggerAutoSpeech();
+    }, 5000);
   </script>
 
 </body>
