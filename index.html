@@ -3,23 +3,111 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-  <title>Google Cloud WebAR デモ</title>
-  <!-- A-Frame (v1.2.0) for 3D Rendering -->
+  <title>分析の助 WebAR デモ</title>
+  <!-- A-Frame (v1.2.0) for 3D Engine -->
   <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
-  <!-- AR.js for A-Frame (v3.3.2) for Camera & Tracking -->
+  <!-- AR.js for A-Frame (v3.3.2) for Camera Stream -->
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+  
+  <script>
+    // A-Frame custom component for random walking in 3D space, ignoring gravity
+    // It keeps the mascot's face always pointing towards the camera on the Y-axis.
+    AFRAME.registerComponent('random-walk', {
+      schema: {
+        speed: {type: 'number', default: 0.3}, // ゆったりとした愛らしい歩行スピード
+        rangeX: {type: 'array', default: [-1.4, 1.4]},
+        rangeY: {type: 'array', default: [-0.4, 0.6]}, // 重力を無視して上下に浮かび上がる範囲
+        rangeZ: {type: 'array', default: [-3.2, -1.8]}
+      },
+      
+      init: function () {
+        this.targetPosition = new THREE.Vector3();
+        this.currentPosition = this.el.object3D.position;
+        this.getNewTarget();
+        this.isMoving = true;
+        this.pauseTimeout = null;
+      },
+      
+      getNewTarget: function () {
+        const rx = this.data.rangeX.map(Number);
+        const ry = this.data.rangeY.map(Number);
+        const rz = this.data.rangeZ.map(Number);
+        
+        this.targetPosition.set(
+          Math.random() * (rx[1] - rx[0]) + rx[0],
+          Math.random() * (ry[1] - ry[0]) + ry[0],
+          Math.random() * (rz[1] - rz[0]) + rz[0]
+        );
+        
+        this.pauseTime = Math.random() * 2000 + 1000; // 次の目的地に向けて歩き始めるまでの休憩時間
+      },
+      
+      tick: function (time, timeDelta) {
+        // 1. 移動処理
+        if (this.isMoving) {
+          const step = (this.data.speed * timeDelta) / 1000;
+          const distance = this.currentPosition.distanceTo(this.targetPosition);
+          
+          if (distance > step) {
+            const dir = new THREE.Vector3().subVectors(this.targetPosition, this.currentPosition).normalize();
+            this.el.object3D.position.addScaledVector(dir, step);
+          } else {
+            this.isMoving = false;
+            this.pauseTimeout = setTimeout(() => {
+              this.getNewTarget();
+              this.isMoving = true;
+            }, this.pauseTime);
+          }
+        }
+        
+        // 2. 向き処理 (常にカメラの方を向かせる: Y軸のみビルボード化)
+        const cameraEl = this.el.sceneEl.camera;
+        if (cameraEl) {
+          const cameraWorldPos = new THREE.Vector3();
+          cameraEl.getWorldPosition(cameraWorldPos);
+          
+          const mascotPos = new THREE.Vector3();
+          this.el.object3D.getWorldPosition(mascotPos);
+          
+          // カメラとマスコットの水平ベクトル
+          const dx = cameraWorldPos.x - mascotPos.x;
+          const dz = cameraWorldPos.z - mascotPos.z;
+          const angleToCamera = Math.atan2(dx, dz);
+          
+          // 正面(Zプラス方向)を向かせるラジアンを度数に変換
+          let targetY = angleToCamera * (180 / Math.PI);
+          
+          const currentRotation = this.el.getAttribute('rotation') || {x: 0, y: 0, z: 0};
+          let diff = targetY - currentRotation.y;
+          diff = Math.atan2(Math.sin(diff * Math.PI / 180), Math.cos(diff * Math.PI / 180)) * 180 / Math.PI;
+          
+          // Y軸はカメラに滑らかに向ける。Z軸は歩行中のみゆらゆら揺らす
+          this.el.setAttribute('rotation', {
+            x: 0,
+            y: currentRotation.y + diff * 0.08, // 緩やかに回転させて滑らかな動きに
+            z: this.isMoving ? Math.sin(time / 200) * 5 : 0
+          });
+        }
+      },
+      
+      remove: function () {
+        if (this.pauseTimeout) clearTimeout(this.pauseTimeout);
+      }
+    });
+  </script>
   <!-- Google Fonts & FontAwesome -->
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Outfit:wght@600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Outfit:wght@600;800&family=Fira+Code:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
   <style>
-    /* UI Overlay Styling */
     body {
       margin: 0;
       overflow: hidden;
       font-family: 'Noto Sans JP', sans-serif;
+      user-select: none;
     }
     
+    /* UI Overlay */
     .ar-overlay {
       position: absolute;
       top: 0;
@@ -45,6 +133,10 @@
       padding: 12px 20px;
       pointer-events: auto;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+      margin: 0 auto;
+      width: 95%;
+      text-align: center;
     }
     
     .overlay-header h1 {
@@ -53,6 +145,7 @@
       font-weight: 700;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
     }
     
@@ -69,127 +162,662 @@
       color: #94a3b8;
       line-height: 1.4;
     }
+
+    /* Floating Bubble Cards (HUD Sideboards) */
+    .hud-container {
+      position: absolute;
+      top: 90px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    .hud-left {
+      left: 20px;
+    }
+
+    .hud-right {
+      right: 20px;
+    }
+
+    /* The Bubble Card (Premium Dark Glassmorphism) */
+    .bubble-card {
+      display: flex;
+      align-items: stretch;
+      background: rgba(28, 28, 30, 0.7); /* 暗めのプレミアムな半透明グレー */
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px; /* 画像そっくりのかなり丸みのある角丸 */
+      color: #fff;
+      width: 200px; /* メタ情報が消えたため幅を少しスリムに調整 (250px -> 200px) */
+      min-height: 44px; /* ハートが消えたため高さをスリムに調整 (56px -> 44px) */
+      position: relative;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 0;
+      overflow: visible;
+    }
+
+    .bubble-card:hover {
+      transform: translateY(-2px) scale(1.02);
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Bubble Speech Tail - Left side cards */
+    .hud-left .bubble-card::before {
+      content: '';
+      position: absolute;
+      left: -9px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-width: 6px 9px 6px 0;
+      border-style: solid;
+      border-color: transparent rgba(28, 28, 30, 0.7) transparent transparent;
+    }
+
+    /* Bubble Speech Tail - Right side cards */
+    .hud-right .bubble-card::before {
+      content: '';
+      position: absolute;
+      right: -9px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-width: 6px 0 6px 9px;
+      border-style: solid;
+      border-color: transparent transparent transparent rgba(28, 28, 30, 0.7);
+    }
+
+    /* Inside Card Container */
+    .card-body {
+      display: flex;
+      flex: 1;
+      padding: 8px 12px 8px 18px; /* 左側のパディングを広げてしっぽとのバランスを取る */
+      align-items: center;
+    }
+
+    /* Center Main Title / Rating Column */
+    .card-main {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      flex: 1;
+      position: relative;
+    }
+
+    /* Title Holder */
+    .title-container {
+      display: flex;
+      align-items: center;
+      position: relative;
+    }
+
+    /* Main Title */
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-left: 0; /* マージンをリセットして左揃え */
+      line-height: 1.2;
+      letter-spacing: -0.2px;
+    }
+
+    /* Heart Rating */
+    .card-rating {
+      display: flex;
+      gap: 2px;
+      color: #ffffff;
+      font-size: 9px;
+      margin-top: 4px;
+      margin-left: 0; /* マージンをリセットして左揃え */
+    }
+
+    /* Right-side Icon Container */
+    .card-icon-container {
+      width: 54px; /* スリム化に合わせて幅を調整 */
+      border-radius: 0 19px 19px 0; /* Align with card right border */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: #ffffff;
+      flex-shrink: 0;
+    }
+
+    /* Matches colors from image precisely */
+    .icon-blue {
+      background: #009be3; /* Vivid Smartphone Blue */
+    }
+    
+    .icon-purple {
+      background: #7c3aed; /* Purple */
+    }
+
+    .icon-green {
+      background: #10b981; /* Green */
+    }
+
+    .icon-orange {
+      background: #f97316; /* Orange */
+    }
+
+    .icon-pink {
+      background: #e43f8d; /* Vivid Baby Pink */
+    }
+
+    .icon-brown {
+      background: #7a431d; /* Vivid Coffee Brown */
+    }
+
+    .icon-teal {
+      background: #0d9488; /* Teal */
+    }
     
     .overlay-footer {
       align-self: center;
-      background: rgba(15, 23, 42, 0.8);
+      background: rgba(15, 23, 42, 0.85);
       backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 10px 16px;
+      padding: 10px 24px;
       border-radius: 30px;
       color: #fff;
       font-size: 11px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
       pointer-events: auto;
+      text-align: center;
+      max-width: 90%;
+      margin-bottom: 10px;
     }
     
-    .marker-link {
-      color: #60a5fa;
-      text-decoration: underline;
-      font-weight: 700;
-      cursor: pointer;
+    .tap-hint-icon {
+      font-size: 14px;
+      color: #10b981;
+      animation: bounce 1s infinite alternate;
     }
 
-    /* Target / Scan Guide Overlay */
-    .scan-reticle {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 200px;
-      height: 200px;
-      border: 2px dashed rgba(16, 185, 129, 0.4);
-      border-radius: 20px;
-      pointer-events: none;
-      animation: pulse-reticle 2s infinite alternate;
+    @keyframes bounce {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-4px); }
     }
 
-    @keyframes pulse-reticle {
-      0% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.4; }
-      100% { transform: translate(-50%, -50%) scale(1.05); opacity: 0.8; }
-    }
-    
-    /* Remove AR.js built-in VR button and styling tweaks */
-    .a-enter-vr {
-      display: none !important;
+    /* Responsive for smaller mobile viewport */
+    @media (max-width: 768px) {
+      .hud-container {
+        top: 75px;
+        gap: 6px;
+      }
+      .bubble-card {
+        width: 140px; /* モバイルもスリム化 (170px -> 140px) */
+        min-height: 34px; /* ハートが消えたため高さをスリムに調整 (44px -> 34px) */
+        border-radius: 14px;
+      }
+      .hud-left { left: 8px; }
+      .hud-right { right: 8px; }
+      .card-body {
+        padding: 4px 6px 4px 12px;
+      }
+      .card-title {
+        font-size: 10px;
+        margin-left: 0;
+      }
+      .card-rating {
+        font-size: 6px;
+        gap: 1px;
+        margin-top: 2px;
+        margin-left: 0;
+      }
+      .card-icon-container {
+        width: 38px;
+        border-radius: 0 13px 13px 0;
+        font-size: 14px;
+      }
     }
   </style>
 </head>
 <body style="margin: 0; overflow: hidden;">
 
-  <!-- UI Guide Overlays -->
+  <!-- UI Overlay -->
   <div class="ar-overlay">
-    <!-- Header info -->
+    <!-- Header -->
     <div class="overlay-header">
-      <h1><i class="fa-solid fa-cube" style="color: #3b82f6;"></i> Google Cloud <span>WebAR Demo</span></h1>
-      <p>A-Frame & AR.js を用いたブラウザ型拡張現実(AR)デモアプリケーション</p>
+      <h1><i class="fa-solid fa-microscope" style="color: #60a5fa;"></i> <span>分析の助 (ぶんせきのすけ)</span> ARデモ</h1>
+      <p>【化学分析の地味ゆるキャラ】指定された空間に3Dホログラムボードを展開中</p>
+    </div>
+
+    <!-- Cyber HUD Left Board (Bubble Cards) -->
+    <div class="hud-container hud-left">
+      
+      <!-- Card 1: EPMA分析 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">EPMA分析</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-blue">
+          <i class="fa-solid fa-magnifying-glass-chart"></i>
+        </div>
+      </div>
+
+      <!-- Card 2: X線回折 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">X線回折</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-brown">
+          <i class="fa-solid fa-cube"></i>
+        </div>
+      </div>
+
+      <!-- Card 3: ICP/MS -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">ICP/MS</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-pink">
+          <i class="fa-solid fa-wave-square"></i>
+        </div>
+      </div>
+
+      <!-- Card 4: 吸光度 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">吸光度</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-green">
+          <i class="fa-solid fa-circle-nodes"></i>
+        </div>
+      </div>
+
+      <!-- Card 5: 連続測定 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">連続測定</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-orange">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+        </div>
+      </div>
+
+      <!-- Card 6: GC -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">GC</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-teal">
+          <i class="fa-solid fa-chart-column"></i>
+        </div>
+      </div>
+
+      <!-- Card 7: GC/MS -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">GC/MS</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-purple">
+          <i class="fa-solid fa-cubes-stacked"></i>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Cyber HUD Right Board (Bubble Cards) -->
+    <div class="hud-container hud-right">
+      
+      <!-- Card 1: ガス分析 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">ガス分析</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-green">
+          <i class="fa-solid fa-wind"></i>
+        </div>
+      </div>
+
+      <!-- Card 2: 水質分析 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">水質分析</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-blue">
+          <i class="fa-solid fa-droplet"></i>
+        </div>
+      </div>
+
+      <!-- Card 3: 材料分析 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">材料分析</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-purple">
+          <i class="fa-solid fa-microscope"></i>
+        </div>
+      </div>
+
+      <!-- Card 4: 成分分析 -->
+      <div class="bubble-card">
+        <div class="card-body">
+          <div class="card-main">
+            <div class="title-container">
+              <span class="card-title">成分分析</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-icon-container icon-orange">
+          <i class="fa-solid fa-flask-vial"></i>
+        </div>
+      </div>
+
     </div>
     
-    <!-- Central guide box -->
-    <div class="scan-reticle"></div>
-    
-    <!-- Footer instruction -->
+    <!-- Footer Instruction -->
     <div class="overlay-footer">
-      <i class="fa-solid fa-camera-retro" style="color: #10b981;"></i>
-      <span>カメラを起動し、<a href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank" class="marker-link">Hiroマーカー</a> を写してください</span>
+      <i class="fa-solid fa-hand-pointer tap-hint-icon"></i>
+      <span>スマホを動かして周囲をスキャンしてください。<br>分析の助をタップすると、お助けメッセージをしゃべるよ！</span>
     </div>
   </div>
 
-  <!-- A-Frame AR Scene -->
-  <!-- arjs parameters:
-       sourceType: webcam (PC/スマホのカメラを使用)
-       debugUIEnabled: false (AR.jsのデバッグ用の赤い枠等を非表示に) -->
-  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+  <!-- A-Frame Scene Setup -->
+  <a-scene embedded 
+           arjs="sourceType: webcam; debugUIEnabled: false;" 
+           cursor="rayOrigin: mouse" 
+           raycaster="objects: .clickable">
     
-    <!-- Hiro Marker definition
-         この中に配置された3Dオブジェクトが、マーカー認識時に表示されます -->
-    <a-marker preset="hiro">
+    <!-- 3D Mascot Group (Mascot: "分析の助")
+         position を 0 -0.2 -2.2 に配置します。 -->
+    <a-entity id="mascot-container" 
+              position="0 -0.2 -2.2" 
+              random-walk="speed: 0.35;">
       
-      <!-- 1. Google Cloudを象徴するメイン立方体 (3D Box)
-           animation: Y軸方向へ自転させます -->
-      <a-box position="0 0.5 0" 
-             width="0.8" height="0.8" depth="0.8"
-             material="color: #3b82f6; roughness: 0.1; metalness: 0.4; opacity: 0.85;"
-             animation="property: rotation; to: 360 360 0; loop: true; dur: 6000; easing: linear">
-        
-        <!-- 2. 立方体の中に浮かぶインナー球体 (3D Sphere)
-             GCP Vertex AI / AIエージェントのコアをイメージ -->
-        <a-sphere position="0 0 0" 
-                  radius="0.3" 
-                  material="color: #8b5cf6; emissive: #8b5cf6; emissiveIntensity: 0.6; roughness: 0.3;">
-        </a-sphere>
+      <!-- タップ対象となる透明なコライダー（クリック判定を広げるため） -->
+      <a-box class="clickable"
+             id="mascot-collider"
+             position="0 0.1 0" 
+             width="1.2" height="1.8" depth="1.2" 
+             material="opacity: 0; transparent: true;">
       </a-box>
+      
+      <!-- 1. 分析の助の本体 -->
+      <a-entity id="mascot-model">
+        <!-- 外側のフラスコガラス (半透明) -->
+        <a-sphere radius="0.45" 
+                  position="0 -0.15 0"
+                  color="#94a3b8" 
+                  material="roughness: 0.1; metalness: 0.9; opacity: 0.4; transparent: true;">
+        </a-sphere>
+        <!-- フラスコの首部分 (半透明) -->
+        <a-cylinder position="0 0.35 0" 
+                    radius="0.12" 
+                    height="0.4" 
+                    color="#94a3b8" 
+                    material="roughness: 0.1; metalness: 0.9; opacity: 0.4; transparent: true;">
+        </a-cylinder>
+        <!-- フラスコの口部分 (半透明リング) -->
+        <a-torus position="0 0.55 0" 
+                 rotation="90 0 0" 
+                 radius="0.12" 
+                 radius-tubular="0.015" 
+                 color="#94a3b8" 
+                 material="roughness: 0.1; metalness: 0.9; opacity: 0.55; transparent: true;">
+        </a-torus>
 
-      <!-- 3. マーカーの上に浮かぶ3Dテキスト (浮遊エフェクト付き) -->
-      <a-entity position="0 1.2 0"
-                animation="property: position; to: 0 1.35 0; dir: alternate; dur: 1500; loop: true; easing: easeInOutSine">
-        <!-- Floating Text -->
-        <a-text value="Google Cloud\nDB & AI" 
-                color="#10b981" 
+        <!-- 中の緑色の分析用液体 -->
+        <a-sphere id="fluid"
+                  radius="0.38" 
+                  position="0 -0.2 0"
+                  color="#10b981" 
+                  material="roughness: 0.8; metalness: 0.1; opacity: 0.85; transparent: true;"
+                  animation="property: scale; to: 1 0.95 1; dir: alternate; dur: 1500; loop: true; easing: easeInOutSine">
+        </a-sphere>
+
+        <!-- 白衣 -->
+        <a-cone position="0 -0.22 0.05" 
+                radius-bottom="0.4" 
+                radius-top="0.14" 
+                height="0.38" 
+                color="#e2e8f0" 
+                rotation="0 0 0"
+                material="roughness: 0.6;">
+        </a-cone>
+
+        <!-- レスキュー赤十字マーク -->
+        <a-box position="0 -0.22 0.41" width="0.03" height="0.1" depth="0.02" color="#ef4444"></a-box>
+        <a-box position="0 -0.22 0.41" width="0.1" height="0.03" depth="0.02" color="#ef4444"></a-box>
+
+        <!-- 地味で真面目な黒縁メガネ -->
+        <a-entity id="glasses" position="0 0.08 0">
+          <a-ring position="-0.14 0 0.42" radius-inner="0.08" radius-outer="0.11" color="#1e293b" scale="1.2 1 1"></a-ring>
+          <a-ring position="0.14 0 0.42" radius-inner="0.08" radius-outer="0.11" color="#1e293b" scale="1.2 1 1"></a-ring>
+          <a-box position="0 0 0.42" width="0.1" height="0.02" depth="0.01" color="#1e293b"></a-box>
+        </a-entity>
+
+        <!-- 目 (タレ目の細い笑い目) -->
+        <a-plane position="-0.14 0.08 0.41" width="0.09" height="0.015" color="#000000" rotation="0 0 10"></a-plane>
+        <a-plane position="0.14 0.08 0.41" width="0.09" height="0.015" color="#000000" rotation="0 0 -10"></a-plane>
+
+        <!-- ほっぺ -->
+        <a-sphere position="-0.26 0.0 0.36" radius="0.05" color="#f87171" material="opacity: 0.6; transparent: true;"></a-sphere>
+        <a-sphere position="0.26 0.0 0.36" radius="0.05" color="#f87171" material="opacity: 0.6; transparent: true;"></a-sphere>
+
+        <!-- お口 -->
+        <a-cone position="0 -0.04 0.43" rotation="0 0 0" radius-bottom="0.025" height="0.035" color="#ea580c"></a-cone>
+
+        <!-- おてて -->
+        <a-cylinder id="left-hand"
+                    position="-0.46 -0.15 0" 
+                    rotation="0 0 30" 
+                    radius="0.05" 
+                    height="0.2" 
+                    color="#e2e8f0"
+                    animation="property: rotation; to: 0 0 50; dir: alternate; dur: 1200; loop: true; easing: easeInOutQuad">
+        </a-cylinder>
+        <a-cylinder id="right-hand"
+                    position="0.46 -0.15 0" 
+                    rotation="0 0 -30" 
+                    radius="0.05" 
+                    height="0.2" 
+                    color="#e2e8f0"
+                    animation="property: rotation; to: 0 0 -50; dir: alternate; dur: 1200; loop: true; easing: easeInOutQuad">
+        </a-cylinder>
+
+        <!-- あんよ -->
+        <a-cylinder position="-0.16 -0.52 0" radius="0.07" height="0.1" color="#475569"></a-cylinder>
+        <a-cylinder position="0.16 -0.52 0" radius="0.07" height="0.1" color="#475569"></a-cylinder>
+      </a-entity>
+
+      <!-- 2. 吹き出しセリフ -->
+      <a-entity id="speech-bubble" position="0 1.1 0" scale="0 0 0">
+        <a-plane width="1.6" height="0.5" color="#1e293b" material="opacity: 0.95; transparent: true; roughness: 0.8;"></a-plane>
+        <a-ring radius-inner="0.78" radius-outer="0.8" color="#10b981" scale="1 0.35 1" material="side: double;"></a-ring>
+        <a-text id="speech-text" 
+                value="Hello!" 
+                color="#f8fafc" 
                 align="center" 
-                width="3" 
+                width="2.4"
                 font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"
                 font-image="https://cdn.aframe.io/fonts/DejaVu-sdf.png">
         </a-text>
       </a-entity>
 
-      <!-- 4. マーカー上の装飾用ベースリング -->
-      <a-ring position="0 0 0" 
-              rotation="-90 0 0" 
-              radius-inner="0.6" 
-              radius-outer="0.75" 
-              material="color: #10b981; opacity: 0.5; side: double;">
-      </a-ring>
+      <!-- 3. 3Dホログラム空間ディスプレイ（左側: Methods） -->
+      <a-entity position="-1.2 0.2 -0.2" rotation="0 25 0">
+        <a-plane width="0.9" height="1.3" color="#1e293b" material="opacity: 0.6; transparent: true; roughness: 0.9;"></a-plane>
+        <a-ring radius-inner="0.67" radius-outer="0.68" color="#3b82f6" scale="1 1.45 1" material="side: double; opacity: 0.7;"></a-ring>
+        <a-text value="EPMA Analysis\nX-ray Diffraction\nICP / MS\nAbsorbance\nContinuous Meas.\nGas Chromatograph\nGC / MS" 
+                color="#93c5fd" 
+                align="center" 
+                position="0 0 0.02"
+                width="1.8"
+                font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"
+                font-image="https://cdn.aframe.io/fonts/DejaVu-sdf.png">
+        </a-text>
+        <a-text value="METHODS" color="#60a5fa" align="center" position="0 0.52 0.02" width="2.4" font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"></a-text>
+      </a-entity>
+
+      <!-- 4. 3Dホログラム空間ディスプレイ（右側: Targets） -->
+      <a-entity position="1.2 0.2 -0.2" rotation="0 -25 0">
+        <a-plane width="0.9" height="1.3" color="#1e293b" material="opacity: 0.6; transparent: true; roughness: 0.9;"></a-plane>
+        <a-ring radius-inner="0.67" radius-outer="0.68" color="#10b981" scale="1 1.45 1" material="side: double; opacity: 0.7;"></a-ring>
+        <a-text value="Gas Analysis\nWater Quality\nMaterial Analysis\nComponent Anal." 
+                color="#a7f3d0" 
+                align="center" 
+                position="0 0.02"
+                width="1.8"
+                font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"
+                font-image="https://cdn.aframe.io/fonts/DejaVu-sdf.png">
+        </a-text>
+        <a-text value="TARGETS" color="#10b981" align="center" position="0 0.52 0.02" width="2.4" font="https://cdn.aframe.io/fonts/DejaVu-sdf.json"></a-text>
+      </a-entity>
       
-    </a-marker>
-    
-    <!-- AR Camera Entity -->
-    <a-entity camera></a-entity>
+    </a-entity>
+
+    <!-- AR Camera -->
+    <a-entity camera look-controls></a-entity>
     
   </a-scene>
+
+  <!-- JavaScript for Interactions -->
+  <script>
+    const mascot = document.getElementById('mascot-collider');
+    const bubble = document.getElementById('speech-bubble');
+    const speechText = document.getElementById('speech-text');
+    const mascotModel = document.getElementById('mascot-model');
+    const mascotContainer = document.getElementById('mascot-container');
+    
+    const analysisItems = [
+      "EPMA分析",
+      "X線回折",
+      "ICP/MS",
+      "吸光度",
+      "連続測定",
+      "GC",
+      "GC/MS",
+      "ガス分析",
+      "水質分析",
+      "材料分析",
+      "成分分析"
+    ];
+
+    const messageTemplates = [
+      "{item}できるよ。",
+      "{item}について知りたいですか？",
+      "{item}ならお任せください！",
+      "{item}をお手伝いしますよ。",
+      "{item}をコツコツ調べますね。",
+      "{item}のデータに異常はありません！",
+      "{item}を調べましょう！",
+      "{item}でお困りですか？"
+    ];
+
+    function generateRandomDialogue() {
+      const randomItem = analysisItems[Math.floor(Math.random() * analysisItems.length)];
+      const randomTemplate = messageTemplates[Math.floor(Math.random() * messageTemplates.length)];
+      return randomTemplate.replace("{item}", randomItem);
+    }
+
+    let bubbleTimeout = null;
+    let isJumping = false;
+
+    mascot.addEventListener('click', () => {
+      // ゆるキャラのランダム歩行コンポーネントを一時停止
+      const movement = mascotContainer.components['random-walk'];
+      if (movement) {
+        movement.isMoving = false;
+        // 停止時は体の傾きをリセット
+        const currentRotation = mascotContainer.getAttribute('rotation') || {x: 0, y: 0, z: 0};
+        mascotContainer.setAttribute('rotation', {x: 0, y: currentRotation.y, z: 0});
+      }
+
+      // 分析項目を動的に組み合わせたランダムセリフの適用
+      const dialogueText = generateRandomDialogue();
+      speechText.setAttribute('value', dialogueText);
+      
+      bubble.removeAttribute('animation');
+      bubble.setAttribute('animation', {
+        property: 'scale',
+        to: '1 1 1',
+        dur: 300,
+        easing: 'easeOutBack'
+      });
+
+      if (!isJumping) {
+        isJumping = true;
+        mascotModel.setAttribute('animation', {
+          property: 'position',
+          to: '0 0.3 0',
+          dir: 'alternate',
+          dur: 250,
+          loop: 2,
+          easing: 'easeInOutQuad'
+        });
+        
+        setTimeout(() => {
+          mascotModel.removeAttribute('animation');
+          mascotModel.setAttribute('position', '0 0 0');
+          isJumping = false;
+          
+          // ジャンプ完了後にランダム歩行を再開
+          if (movement) {
+            movement.isMoving = true;
+          }
+        }, 500);
+      }
+
+      clearTimeout(bubbleTimeout);
+      bubbleTimeout = setTimeout(() => {
+        bubble.removeAttribute('animation');
+        bubble.setAttribute('animation', {
+          property: 'scale',
+          to: '0 0 0',
+          dur: 250,
+          easing: 'easeInBack'
+        });
+      }, 3000);
+    });
+  </script>
 
 </body>
 </html>
